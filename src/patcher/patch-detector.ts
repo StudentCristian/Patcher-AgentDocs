@@ -1,6 +1,3 @@
-import { PatchType } from "./from-docx";
-import { IListPatch } from "./list-patch-types";
-
 import JSZip from "jszip";
 
 import { InputDataType } from "./from-docx";
@@ -48,20 +45,4 @@ export const patchDetector = async ({ data }: PatchDetectorOptions): Promise<{
 const findPatchKeys = (text: string): readonly string[] => {
     const pattern = /(?<=\{\{).+?(?=\}\})/gs;
     return text.match(pattern) ?? [];
-};
-
-export const detectListPatches = (patches: Record<string, any>): string[] => {
-    return Object.keys(patches).filter(key => 
-        patches[key]?.type === PatchType.LIST
-    );
-};
-
-export const validateListPatch = (patch: any): patch is IListPatch => {
-    return (
-        patch?.type === PatchType.LIST &&
-        typeof patch.listType === "string" &&
-        ["numbered", "bullet"].includes(patch.listType) &&
-        Array.isArray(patch.children)
-        // Puedes agregar validaciones adicionales aquí si lo deseas
-    );
 };

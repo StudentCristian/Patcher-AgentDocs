@@ -7,7 +7,7 @@ import { IViewWrapper } from "@file/document-wrapper";
 import { File } from "@file/file";
 import { FileChild } from "@file/file-child";
 import { IMediaData, Media } from "@file/media";
-import { ConcreteHyperlink, ExternalHyperlink, ParagraphChild } from "@file/paragraph";
+import { ConcreteHyperlink, ExternalHyperlink, Paragraph, ParagraphChild } from "@file/paragraph";
 import { TargetModeType } from "@file/relationships/relationship/relationship";
 import { IContext } from "@file/xml-components";
 import { uniqueId } from "@util/convenience-functions";
@@ -17,21 +17,21 @@ import { appendContentType } from "./content-types-manager";
 import { appendRelationship, getNextRelationshipIndex, checkIfNumberingRelationExists } from "./relationship-manager";
 import { replacer } from "./replacer";
 import { NumberingManager } from "./numbering-manager";  
-import { toJson, isListPatch  } from "./util";
-import { IListPatch } from "./list-patch-types";
+import { toJson  } from "./util";
 
 import xml from "xml";  
 import { Formatter } from "@export/formatter";  
 import { NumberingReplacer } from "@export/packer/numbering-replacer";
+import { extractExistingNumbering, NumberingInfo } from "./numbering-extractor";
+import { NumberingMapper } from "./numbering-mapper";
+
+export const PatchType = {  
+    DOCUMENT: "file",  
+    PARAGRAPH: "paragraph",  
+} as const;
 
 // eslint-disable-next-line functional/prefer-readonly-type
 export type InputDataType = Buffer | string | number[] | Uint8Array | ArrayBuffer | Blob | NodeJS.ReadableStream | JSZip;
-
-export const PatchType = {
-    DOCUMENT: "file",
-    PARAGRAPH: "paragraph",
-    LIST: "list", // Nuevo tipo para listas
-} as const;
 
 
 type ParagraphPatch = {
@@ -44,15 +44,6 @@ type FilePatch = {
     readonly children: readonly FileChild[];
 };
 
-// type ListPatch = {
-//     readonly type: typeof PatchType.LIST;
-//     readonly listType: "numbered" | "bullet";
-//     readonly children: readonly ParagraphChild[];
-//     readonly reference?: string;
-//     readonly startNumber?: number;
-//     readonly level?: number;
-// };
-
 type IImageRelationshipAddition = {
     readonly key: string;
     readonly mediaDatas: readonly IMediaData[];
@@ -63,7 +54,7 @@ type IHyperlinkRelationshipAddition = {
     readonly hyperlink: { readonly id: string; readonly link: string };
 };
 
-export type IPatch = ParagraphPatch | FilePatch | IListPatch;
+export type IPatch = ParagraphPatch | FilePatch;
 
 export type PatchDocumentOutputType = OutputType;
 
@@ -105,48 +96,97 @@ export const patchDocument = async <T extends PatchDocumentOutputType = PatchDoc
     placeholderDelimiters = { start: "{{", end: "}}" } as const,  
     recursive = true,  
 }: PatchDocumentOptions<T>): Promise<OutputByType[T]> => {  
-    const zipContent = data instanceof JSZip ? data : await JSZip.loadAsync(data);  
-    const listPatches: Record<string, IListPatch> = {};  
-      
-    for (const [key, patch] of Object.entries(patches)) {  
-        if (isListPatch(patch)) {  
-            listPatches[key] = patch;  
-        }  
-    }  
-  
-    let numberingManager: NumberingManager | null = null;  
-    const numberingReferenceMap = new Map<string, string>();  
-      
-    if (Object.keys(listPatches).length > 0) {    
-        numberingManager = new NumberingManager();    
-        numberingManager.generateNumberingFromPatches(listPatches);    
-        numberingManager.createConcreteInstances(listPatches);  
-          
-        // Procesamiento especial para listas anidadas  
-        const concreteNumbering = numberingManager.getNumbering().ConcreteNumbering;  
-        for (const [patchKey, patch] of Object.entries(listPatches)) {    
-            if (patch.nested) {    
-                const sharedReference = patch.reference || `${patch.listType}-nested-${patchKey}`;    
-                const matchingConcrete = concreteNumbering.find(concrete =>     
-                    concrete.reference === sharedReference ||     
-                    concrete.reference.includes(sharedReference)    
-                );    
-                  
-                if (matchingConcrete) {    
-                    numberingReferenceMap.set(patchKey, matchingConcrete.reference);    
-                } else {    
-                    numberingReferenceMap.set(patchKey, sharedReference);    
-                }    
-            } else {    
-                const matchingConcrete = concreteNumbering.find(concrete => {    
-                    return concrete.reference.includes(patch.listType);    
-                });    
-                if (matchingConcrete) {    
-                    numberingReferenceMap.set(patchKey, matchingConcrete.reference);    
-                }    
+    const zipContent = data instanceof JSZip ? data : await JSZip.loadAsync(data); 
+    
+    const detectNumberingFromDocumentPatches = (patches: Record<string, IPatch>): Map<string, { listType: string; level: number; startNumber?: number }> => {                
+        const numberingConfigs = new Map<string, { listType: string; level: number; startNumber?: number }>();                
+                    
+        Object.entries(patches).forEach(([patchKey, patch]) => {                
+            console.log(`Processing patch: ${patchKey}, type: ${patch.type}`);          
+            if (patch.type === PatchType.DOCUMENT) {                
+                patch.children.forEach((child, index) => {          
+                    console.log(`Child ${index}:`, child.constructor.name);          
+                        
+                    if (child instanceof Paragraph) {          
+                        // Acceder a las propiedades internas del párrafo      
+                        const paragraphProperties = (child as any).properties;      
+                        console.log(`Paragraph properties:`, paragraphProperties);      
+                            
+                        // Buscar en las referencias de numeración almacenadas      
+                        if (paragraphProperties && paragraphProperties.numberingReferences) {      
+                            const numberingRefs = paragraphProperties.numberingReferences;      
+                            console.log(`Numbering references:`, numberingRefs);      
+                                
+                            numberingRefs.forEach((ref: any) => {      
+                                if (ref.reference) {      
+                                    console.log(`Found numbering reference:`, ref);      
+                                    numberingConfigs.set(ref.reference, {                
+                                        listType: ref.reference.includes('bullet') ? 'bullet' : 'numbered',               
+                                        level: 0,      
+                                        startNumber: ref.instance || 1                
+                                    });    
+                                }      
+                            });      
+                        }    
+                    }    
+                        
+                    // NUEVA LÓGICA CORREGIDA: Detectar CheckBox por tipo de constructor  
+                    else if (child.constructor.name === 'CheckBox') {    
+                        console.log(`Found standalone CheckBox at child ${index}`);    
+                        // Los checkboxes standalone no necesitan numeración    
+                        // Se procesan directamente por el sistema de patching    
+                    }         
+                });              
+            }                
+        });                
+                    
+        return numberingConfigs;                
+    };
+
+    // Variables para manejo de numeración existente    
+    let existingNumbering: NumberingInfo[] = [];    
+    let numberingMapper: NumberingMapper | null = null;    
+        
+    // Detectar numeración en patches - SOLO UNA VEZ  
+    const numberingConfigs = detectNumberingFromDocumentPatches(patches);    
+    console.log('Detected numbering configs:', numberingConfigs.size);    
+    console.log('Configs:', Array.from(numberingConfigs.entries()));  
+        
+    // Solo cargar numbering.xml si existe y hay configuraciones de numeración    
+    if (numberingConfigs.size > 0) {    
+        const numberingFile = zipContent.files['word/numbering.xml'];    
+        if (numberingFile) {    
+            const numberingContent = await numberingFile.async("text");    
+            const numberingXml = toJson(numberingContent);    
+            const xmlDocuments = { 'word/numbering.xml': numberingXml };    
+            existingNumbering = extractExistingNumbering(xmlDocuments);    
+            console.log(`Found ${existingNumbering.length} existing numbering configurations`);    
+        }    
+            
+        // Crear mapeo de numeración    
+        numberingMapper = new NumberingMapper();    
+        numberingMapper.createMapping(    
+            Array.from(numberingConfigs.keys()),    
+            existingNumbering    
+        );    
+    }    
+        
+    let numberingManager: NumberingManager | null = null;          
+        
+    if (numberingConfigs.size > 0) {        
+        numberingManager = new NumberingManager();        
+             
+        numberingManager.generateNumberingFromConfigs(numberingConfigs);  
+        
+        for (const [reference] of numberingConfigs.entries()) {    
+            const existingInstance = numberingManager.getNumbering().ConcreteNumbering    
+                .find(concrete => concrete.reference === reference);    
+                
+            if (!existingInstance) {    
+                numberingManager.getNumbering().createConcreteNumberingInstance(reference, 0);    
             }    
-        }  
-    } // CORRECCIÓN: Cerrar la llave del if  
+        }    
+    }
   
     const contexts = new Map<string, IContext>();  
     const file = {  
@@ -192,8 +232,7 @@ export const patchDocument = async <T extends PatchDocumentOutputType = PatchDoc
             },  
         ],  
     });  
-  
-    // Resto del procesamiento del archivo...  
+   
     for (const [key, value] of Object.entries(zipContent.files)) {  
         const binaryValue = await value.async("uint8array");  
         const startBytes = binaryValue.slice(0, 2);  
@@ -276,8 +315,7 @@ export const patchDocument = async <T extends PatchDocumentOutputType = PatchDoc
                         } as any,  
                         patchText,  
                         context,  
-                        keepOriginalStyles,  
-                        numberingReferenceMap,  
+                        keepOriginalStyles,   
                     });  
                     if (!recursive || !didFindOccurrence) {  
                         break;  
@@ -298,7 +336,6 @@ export const patchDocument = async <T extends PatchDocumentOutputType = PatchDoc
         map.set(key, json);  
     }  
   
-    // Procesamiento de relaciones e imágenes...  
     for (const { key, mediaDatas } of imageRelationshipAdditions) {  
         const relationshipKey = `word/_rels/${key.split("/").pop()}.rels`;  
         const relationshipsJson = map.get(relationshipKey) ?? createRelationshipFile();  
@@ -348,16 +385,18 @@ export const patchDocument = async <T extends PatchDocumentOutputType = PatchDoc
     }  
   
     // Procesamiento de numbering...  
-    if (numberingManager) {    
-        const contentTypesJson = map.get("[Content_Types].xml");    
-        if (!contentTypesJson) {    
-            throw new Error("Could not find content types file");    
+    if (numberingManager || existingNumbering.length > 0) {   
+        const contentTypesJson = map.get("[Content_Types].xml");  
+        if (!contentTypesJson) {  
+            throw new Error("Could not find content types file");  
         }    
-          
-        appendContentType(    
-            contentTypesJson,     
-            "application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml",     
-            "numbering"    
+
+        // Solo agregar content type si hay nueva numeración  
+    if (numberingManager) {  
+        appendContentType(  
+            contentTypesJson,  
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml",  
+            "numbering"  
         );    
   
         const numbering = numberingManager.getNumbering();  
@@ -405,21 +444,22 @@ export const patchDocument = async <T extends PatchDocumentOutputType = PatchDoc
             }  
         }  
   
-        const documentRelsKey = "word/_rels/document.xml.rels";    
-        const documentRels = map.get(documentRelsKey) ?? createRelationshipFile();    
-        map.set(documentRelsKey, documentRels);    
-          
-        const hasNumberingRelation = checkIfNumberingRelationExists(documentRels);    
-        if (!hasNumberingRelation) {    
-            const nextId = getNextRelationshipIndex(documentRels);    
-            appendRelationship(    
-                documentRels,    
-                nextId,    
-                "http://schemas.openxmlformats.org/officeDocument/2006/relationships/numbering",    
-                "numbering.xml"    
-            );    
-        }    
-    }  
+        const documentRelsKey = "word/_rels/document.xml.rels";  
+        const documentRels = map.get(documentRelsKey) ?? createRelationshipFile();  
+        map.set(documentRelsKey, documentRels);  
+        
+        const hasNumberingRelation = checkIfNumberingRelationExists(documentRels);  
+        if (!hasNumberingRelation) {  
+            const nextId = getNextRelationshipIndex(documentRels);  
+            appendRelationship(  
+                documentRels,  
+                nextId,  
+                "http://schemas.openxmlformats.org/officeDocument/2006/relationships/numbering",  
+                "numbering.xml"  
+            );  
+        }  
+      } 
+    }
   
     const zip = new JSZip();  
   
@@ -442,36 +482,3 @@ export const patchDocument = async <T extends PatchDocumentOutputType = PatchDoc
         compression: "DEFLATE",  
     });  
 };
-
-// const toXml = (jsonObj: Element): string => {
-//     const output = js2xml(jsonObj, {
-//         attributeValueFn: (str) =>
-//             String(str)
-//                 .replace(/&(?!amp;|lt;|gt;|quot;|apos;)/g, "&amp;")
-//                 .replace(/</g, "&lt;")
-//                 .replace(/>/g, "&gt;")
-//                 .replace(/"/g, "&quot;")
-//                 .replace(/'/g, "&apos;"), // cspell:words apos
-//     });
-//     return output;
-// };
-
-// const createRelationshipFile = (): Element => ({
-//     declaration: {
-//         attributes: {
-//             version: "1.0",
-//             encoding: "UTF-8",
-//             standalone: "yes",
-//         },
-//     },
-//     elements: [
-//         {
-//             type: "element",
-//             name: "Relationships",
-//             attributes: {
-//                 xmlns: "http://schemas.openxmlformats.org/package/2006/relationships",
-//             },
-//             elements: [],
-//         },
-//     ],
-// });

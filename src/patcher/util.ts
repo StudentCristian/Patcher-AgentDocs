@@ -1,6 +1,3 @@
-import { PatchType } from "./from-docx";
-import { IListPatch } from "./list-patch-types";
-
 import xml from "xml";
 import { Element, xml2js } from "xml-js";
 
@@ -34,9 +31,9 @@ export const patchSpaceAttribute = (element: Element): Element => ({
 export const getFirstLevelElements = (relationships: Element, id: string): Element[] =>
     relationships.elements?.filter((e) => e.name === id)[0].elements ?? [];
 
-export const isListPatch = (patch: any): patch is IListPatch => {
-    return patch?.type === PatchType.LIST;
-};
+// export const isListPatch = (patch: any): patch is IListPatch => {
+//     return patch?.type === PatchType.LIST;
+// };
 
 export const generateListReference = (listType: string, index: number): string => {
     return `${listType}_ref_${index}`;

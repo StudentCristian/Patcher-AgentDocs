@@ -5,11 +5,10 @@ import { XmlComponent } from "@file/xml-components";
 
 import { CheckBoxUtil, ICheckboxSymbolOptions } from "./checkbox-util";
 
-export class CheckBox extends XmlComponent {
-    // default values per Microsoft
-    private readonly DEFAULT_UNCHECKED_SYMBOL: string = "2610";
-    private readonly DEFAULT_CHECKED_SYMBOL: string = "2612";
-    private readonly DEFAULT_FONT: string = "MS Gothic";
+export class CheckBox extends XmlComponent {  
+    private readonly DEFAULT_UNCHECKED_SYMBOL: string = "2610";  
+    private readonly DEFAULT_CHECKED_SYMBOL: string = "2611"; // ☑ ballot box with check  
+    private readonly DEFAULT_FONT: string = "MS Gothic";  
     public constructor(options?: ICheckboxSymbolOptions) {
         super("w:sdt");
 
