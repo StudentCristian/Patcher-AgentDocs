@@ -1,9 +1,10 @@
+// npm run run-ts -- ./demo/101-numbering-manager.ts
 import * as fs from "fs";  
 import { Paragraph, patchDocument, PatchType, TextRun, CheckBox } from "docx";  
   
 patchDocument({  
     outputType: "nodebuffer",  
-    data: fs.readFileSync("demo/assets/example.docx"),  
+    data: fs.readFileSync("demo/assets/template.docx"),  
     patches: {  
         // Prueba 1: Lista simple numerada  
         simple_numbered: {  
@@ -215,6 +216,6 @@ patchDocument({
         }
     }  
 }).then((doc) => {  
-    fs.writeFileSync("Numbering Manager Test.docx", doc);  
+    fs.writeFileSync("output/Numbering_Manager_Test.docx", doc);  
     console.log("✅ Documento de prueba creado exitosamente!"); 
 });

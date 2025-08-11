@@ -44,3 +44,41 @@ export const traverse = (node: Element): readonly IRenderedParagraphNode[] => {
 
 export const findLocationOfText = (node: Element, text: string): readonly IRenderedParagraphNode[] =>
     traverse(node).filter((p) => p.text.includes(text));
+
+export interface IStyleLocation {
+    readonly pathToParagraph: number[];
+    readonly styleValue: string;
+}
+
+/**
+ * Find all locations of a specific style element type in the document
+ */
+export const findLocationOfStyle = (json: Element, styleElementName: string): readonly IStyleLocation[] => {
+    const result: IStyleLocation[] = [];
+
+    const processElement = (element: Element, path: number[]): void => {
+        if (!element.elements) {
+            return;
+        }
+
+        for (let i = 0; i < element.elements.length; i++) {
+            const child = element.elements[i];
+            if (child.type === "element") {
+                const currentPath = [...path, i];
+
+                if (child.name === styleElementName && child.attributes && child.attributes["w:val"]) {
+                    result.push({
+                        pathToParagraph: currentPath,
+                        styleValue: child.attributes["w:val"] as string,
+                    });
+                }
+
+                processElement(child, currentPath);
+            }
+        }
+    };
+
+    processElement(json, [0]);
+
+    return result;
+};

@@ -15,24 +15,25 @@ import { OutputByType, OutputType } from "@util/output-type";
 
 import { appendContentType } from "./content-types-manager";
 import { appendRelationship, getNextRelationshipIndex, checkIfNumberingRelationExists } from "./relationship-manager";
-import { replacer } from "./replacer";
-import { NumberingManager } from "./numbering-manager";  
+import { replacer } from "./replacer"; 
 import { toJson  } from "./util";
 
 import xml from "xml";  
 import { Formatter } from "@export/formatter";  
 import { NumberingReplacer } from "@export/packer/numbering-replacer";
-import { extractExistingNumbering, NumberingInfo } from "./numbering-extractor";
-import { NumberingMapper } from "./numbering-mapper";
+import { NumberingManager } from "../compose/numbering/numbering-manager"; 
+import { extractExistingNumbering, NumberingInfo } from "../compose/numbering/numbering-extractor";
+import { NumberingMapper } from "../compose/numbering/numbering-mapper";
+import { extractStylesFromDocx, extractStylesFromPatchElements, createStyleInfoFromPatchIds } from "../compose/styling/style-extractor";  
+import { StyleMapper } from "../compose/styling/style-mapper"; 
+
+// eslint-disable-next-line functional/prefer-readonly-type
+export type InputDataType = Buffer | string | number[] | Uint8Array | ArrayBuffer | Blob | NodeJS.ReadableStream | JSZip;
 
 export const PatchType = {  
     DOCUMENT: "file",  
     PARAGRAPH: "paragraph",  
 } as const;
-
-// eslint-disable-next-line functional/prefer-readonly-type
-export type InputDataType = Buffer | string | number[] | Uint8Array | ArrayBuffer | Blob | NodeJS.ReadableStream | JSZip;
-
 
 type ParagraphPatch = {
     readonly type: typeof PatchType.PARAGRAPH;
@@ -75,6 +76,7 @@ const formatter = new Formatter();
 const numberingReplacer = new NumberingReplacer();
 const UTF16LE = new Uint8Array([0xff, 0xfe]);
 const UTF16BE = new Uint8Array([0xfe, 0xff]);
+const styleMapper = new StyleMapper();
 
 const compareByteArrays = (a: Uint8Array, b: Uint8Array): boolean => {
     if (a.length !== b.length) {
@@ -88,6 +90,46 @@ const compareByteArrays = (a: Uint8Array, b: Uint8Array): boolean => {
     return true;
 };
 
+const detectNumberingFromDocumentPatches = (patches: Record<string, IPatch>): Map<string, { listType: string; level: number; startNumber?: number }> => {                
+    const numberingConfigs = new Map<string, { listType: string; level: number; startNumber?: number }>();                
+                
+    Object.entries(patches).forEach(([patchKey, patch]) => {                
+        console.log(`Processing patch: ${patchKey}, type: ${patch.type}`);          
+        if (patch.type === PatchType.DOCUMENT) {                
+            patch.children.forEach((child, index) => {          
+                console.log(`Child ${index}:`, child.constructor.name);          
+                    
+                if (child instanceof Paragraph) {              
+                    const paragraphProperties = (child as any).properties;      
+                    console.log(`Paragraph properties:`, paragraphProperties);      
+                           
+                    if (paragraphProperties && paragraphProperties.numberingReferences) {      
+                        const numberingRefs = paragraphProperties.numberingReferences;      
+                        console.log(`Numbering references:`, numberingRefs);      
+                            
+                        numberingRefs.forEach((ref: any) => {      
+                            if (ref.reference) {      
+                                console.log(`Found numbering reference:`, ref);      
+                                numberingConfigs.set(ref.reference, {                
+                                    listType: ref.reference.includes('bullet') ? 'bullet' : 'numbered',               
+                                    level: 0,      
+                                    startNumber: ref.instance || 1                
+                                });    
+                            }      
+                        });      
+                    }    
+                }    
+                    
+                else if (child.constructor.name === 'CheckBox') {    
+                    console.log(`Found standalone CheckBox at child ${index}`);     
+                }         
+            });              
+        }                
+    });                
+                
+    return numberingConfigs;                
+};
+
 export const patchDocument = async <T extends PatchDocumentOutputType = PatchDocumentOutputType>({  
     outputType,  
     data,  
@@ -97,97 +139,15 @@ export const patchDocument = async <T extends PatchDocumentOutputType = PatchDoc
     recursive = true,  
 }: PatchDocumentOptions<T>): Promise<OutputByType[T]> => {  
     const zipContent = data instanceof JSZip ? data : await JSZip.loadAsync(data); 
-    
-    const detectNumberingFromDocumentPatches = (patches: Record<string, IPatch>): Map<string, { listType: string; level: number; startNumber?: number }> => {                
-        const numberingConfigs = new Map<string, { listType: string; level: number; startNumber?: number }>();                
-                    
-        Object.entries(patches).forEach(([patchKey, patch]) => {                
-            console.log(`Processing patch: ${patchKey}, type: ${patch.type}`);          
-            if (patch.type === PatchType.DOCUMENT) {                
-                patch.children.forEach((child, index) => {          
-                    console.log(`Child ${index}:`, child.constructor.name);          
-                        
-                    if (child instanceof Paragraph) {          
-                        // Acceder a las propiedades internas del párrafo      
-                        const paragraphProperties = (child as any).properties;      
-                        console.log(`Paragraph properties:`, paragraphProperties);      
-                            
-                        // Buscar en las referencias de numeración almacenadas      
-                        if (paragraphProperties && paragraphProperties.numberingReferences) {      
-                            const numberingRefs = paragraphProperties.numberingReferences;      
-                            console.log(`Numbering references:`, numberingRefs);      
-                                
-                            numberingRefs.forEach((ref: any) => {      
-                                if (ref.reference) {      
-                                    console.log(`Found numbering reference:`, ref);      
-                                    numberingConfigs.set(ref.reference, {                
-                                        listType: ref.reference.includes('bullet') ? 'bullet' : 'numbered',               
-                                        level: 0,      
-                                        startNumber: ref.instance || 1                
-                                    });    
-                                }      
-                            });      
-                        }    
-                    }    
-                        
-                    // NUEVA LÓGICA CORREGIDA: Detectar CheckBox por tipo de constructor  
-                    else if (child.constructor.name === 'CheckBox') {    
-                        console.log(`Found standalone CheckBox at child ${index}`);    
-                        // Los checkboxes standalone no necesitan numeración    
-                        // Se procesan directamente por el sistema de patching    
-                    }         
-                });              
-            }                
-        });                
-                    
-        return numberingConfigs;                
-    };
 
-    // Variables para manejo de numeración existente    
-    let existingNumbering: NumberingInfo[] = [];    
-    let numberingMapper: NumberingMapper | null = null;    
-        
-    // Detectar numeración en patches - SOLO UNA VEZ  
+    // Extraer estilos maestros del documento
+    const masterStyles = await extractStylesFromDocx(zipContent);
+    console.log(`Extracted ${masterStyles.length} master styles from document`);
+
     const numberingConfigs = detectNumberingFromDocumentPatches(patches);    
     console.log('Detected numbering configs:', numberingConfigs.size);    
     console.log('Configs:', Array.from(numberingConfigs.entries()));  
-        
-    // Solo cargar numbering.xml si existe y hay configuraciones de numeración    
-    if (numberingConfigs.size > 0) {    
-        const numberingFile = zipContent.files['word/numbering.xml'];    
-        if (numberingFile) {    
-            const numberingContent = await numberingFile.async("text");    
-            const numberingXml = toJson(numberingContent);    
-            const xmlDocuments = { 'word/numbering.xml': numberingXml };    
-            existingNumbering = extractExistingNumbering(xmlDocuments);    
-            console.log(`Found ${existingNumbering.length} existing numbering configurations`);    
-        }    
-            
-        // Crear mapeo de numeración    
-        numberingMapper = new NumberingMapper();    
-        numberingMapper.createMapping(    
-            Array.from(numberingConfigs.keys()),    
-            existingNumbering    
-        );    
-    }    
-        
-    let numberingManager: NumberingManager | null = null;          
-        
-    if (numberingConfigs.size > 0) {        
-        numberingManager = new NumberingManager();        
-             
-        numberingManager.generateNumberingFromConfigs(numberingConfigs);  
-        
-        for (const [reference] of numberingConfigs.entries()) {    
-            const existingInstance = numberingManager.getNumbering().ConcreteNumbering    
-                .find(concrete => concrete.reference === reference);    
-                
-            if (!existingInstance) {    
-                numberingManager.getNumbering().createConcreteNumberingInstance(reference, 0);    
-            }    
-        }    
-    }
-  
+
     const contexts = new Map<string, IContext>();  
     const file = {  
         Media: new Media(),  
@@ -198,6 +158,10 @@ export const patchDocument = async <T extends PatchDocumentOutputType = PatchDoc
     const hyperlinkRelationshipAdditions: IHyperlinkRelationshipAddition[] = [];  
     let hasMedia = false;  
     const binaryContentMap = new Map<string, Uint8Array>();  
+
+    let numberingManager: NumberingManager | null = null;    
+    let existingNumbering: NumberingInfo[] = [];    
+    let numberingMapper: NumberingMapper | null = null;     
   
     // Mover las funciones helper al inicio para evitar hoisting issues  
     const toXml = (jsonObj: Element): string => {  
@@ -316,6 +280,13 @@ export const patchDocument = async <T extends PatchDocumentOutputType = PatchDoc
                         patchText,  
                         context,  
                         keepOriginalStyles,   
+                        styleMapper: (() => {    
+                            const patchStyleIds = extractStylesFromPatchElements([...patchValue.children], context);    
+                            const patchStyles = createStyleInfoFromPatchIds(patchStyleIds);    
+                            styleMapper.createStyleIdMapping(patchStyles, masterStyles);   
+                            console.log(`Patch "${patchKey}": estilos encontrados:`, patchStyleIds);    
+                            return styleMapper;
+                        })(),
                     });  
                     if (!recursive || !didFindOccurrence) {  
                         break;  
@@ -383,6 +354,40 @@ export const patchDocument = async <T extends PatchDocumentOutputType = PatchDoc
         appendContentType(contentTypesJson, "image/gif", "gif");  
         appendContentType(contentTypesJson, "image/svg+xml", "svg");  
     }  
+        
+    // Solo cargar numbering.xml si existe y hay configuraciones de numeración    
+    if (numberingConfigs.size > 0) {    
+        const numberingFile = zipContent.files['word/numbering.xml'];    
+        if (numberingFile) {    
+            const numberingContent = await numberingFile.async("text");    
+            const numberingXml = toJson(numberingContent);    
+            const xmlDocuments = { 'word/numbering.xml': numberingXml };    
+            existingNumbering = extractExistingNumbering(xmlDocuments);    
+            console.log(`Found ${existingNumbering.length} existing numbering configurations`);    
+        }    
+            
+        // Crear mapeo de numeración    
+        numberingMapper = new NumberingMapper();    
+        numberingMapper.createMapping(    
+            Array.from(numberingConfigs.keys()),    
+            existingNumbering    
+        );    
+    }     
+        
+    if (numberingConfigs.size > 0) {        
+        numberingManager = new NumberingManager();        
+             
+        numberingManager.generateNumberingFromConfigs(numberingConfigs);  
+        
+        for (const [reference] of numberingConfigs.entries()) {    
+            const existingInstance = numberingManager.getNumbering().ConcreteNumbering    
+                .find(concrete => concrete.reference === reference);    
+                
+            if (!existingInstance) {    
+                numberingManager.getNumbering().createConcreteNumberingInstance(reference, 0);    
+            }    
+        }    
+    }
   
     // Procesamiento de numbering...  
     if (numberingManager || existingNumbering.length > 0) {   
@@ -391,7 +396,7 @@ export const patchDocument = async <T extends PatchDocumentOutputType = PatchDoc
             throw new Error("Could not find content types file");  
         }    
 
-        // Solo agregar content type si hay nueva numeración  
+    // Solo agregar content type si hay nueva numeración  
     if (numberingManager) {  
         appendContentType(  
             contentTypesJson,  
