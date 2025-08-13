@@ -29,13 +29,15 @@ export const replacer = ({
     context,  
     keepOriginalStyles = true,  
     styleMapper,  
+    numberingReferenceMap,
 }: {  
     readonly json: Element;  
     readonly patch: IPatch;  
     readonly patchText: string;  
     readonly context: IContext;  
     readonly keepOriginalStyles?: boolean;  
-    readonly styleMapper?: StyleMapper; // NUEVO: Parámetro opcional  
+    readonly styleMapper?: StyleMapper;
+    readonly numberingReferenceMap?: Map<string, string>;
 }): IReplacerResult => {  
     const formatter = new Formatter(styleMapper); 
     const renderedParagraphs = findLocationOfText(json, patchText);  
@@ -46,11 +48,23 @@ export const replacer = ({
         return { element: json, didFindOccurrence: false };  
     }  
   
-    for (const renderedParagraph of renderedParagraphs) {  
-        // NUEVO: Aplicar mapeo de estilos antes de formatear  
-        let processedChildren = patch.children;  
-        if (styleMapper) {  
-            processedChildren = applyStyleMapping(patch.children, styleMapper);  
+    for (const renderedParagraph of renderedParagraphs) {
+        let processedChildren = patch.children;
+
+        // NUEVO: Aplicar referencia de numeración si existe
+        if (numberingReferenceMap && numberingReferenceMap.has(patchText)) {
+            const numberingReference = numberingReferenceMap.get(patchText);
+            processedChildren = processedChildren.map(child => {
+                if (child.constructor.name === 'Paragraph') {
+                    // Asumiendo que la propiedad de numeración se llama 'numberingReference'
+                    (child as any).numberingReference = numberingReference;
+                }
+                return child;
+            });
+        }
+
+        if (styleMapper) {
+            processedChildren = applyStyleMapping(patch.children, styleMapper);
         }  
           
             const textJson = processedChildren.map((c) =>   

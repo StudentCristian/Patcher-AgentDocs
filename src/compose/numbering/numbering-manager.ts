@@ -24,7 +24,6 @@
          }      
              
          this.numberingConfig = { config: configs };      
-         // CORRECCIÓN: Siempre crear el objeto Numbering, incluso si configs está vacío  
          this.numbering = new Numbering(this.numberingConfig);      
      }
    
