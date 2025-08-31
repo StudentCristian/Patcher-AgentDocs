@@ -27,7 +27,7 @@ async function testMarkdownEmphasis() {
   
 ## Listas sin orden:  
 - Item A  
-- Item B    
+- Item B      
 - Item C  
   
 ## Listas ordenadas:  
@@ -54,7 +54,7 @@ async function testMarkdownEmphasis() {
             type: PatchType.DOCUMENT,  
             markdownContent: `  
 # Heading 1  
-## Heading 2    
+## Heading 2      
 ### Heading 3  
 #### Heading 4  
 ##### Heading 5  
@@ -88,21 +88,21 @@ Este es contenido normal después de los encabezados con **formato** y *énfasis
   - [ ] Subtarea pendiente  
             `.trim(),  
         },  
-          "markdown-patch-links": {  
-    type: PatchType.DOCUMENT,  
-    markdownContent: `  
+        "markdown-patch-links": {  
+            type: PatchType.DOCUMENT,  
+            markdownContent: `  
 # Enlaces de Markdown  
   
-Visita [link text](https://documentero.com)   para buscar información.  
+Visita [link text](https://documentero.com) para buscar información.  
   
 También puedes ir a [GitHub](https://github.com) para ver código.  
   
 Enlaces con formato: [**Enlace en negrita**](https://documentero.com/) y [*enlace en cursiva*](https://documentero.com/).  
-    `.trim(),  
-  },  
-  "markdown-patch-tables": {  
-  type: PatchType.DOCUMENT,  
-  markdownContent: `  
+            `.trim(),  
+        },  
+        "markdown-patch-tables": {  
+            type: PatchType.DOCUMENT,  
+            markdownContent: `  
 # Tablas de Markdown  
   
 ## Tabla básica:  
@@ -117,21 +117,77 @@ Enlaces con formato: [**Enlace en negrita**](https://documentero.com/) y [*enlac
 |--------------|----------|---------------|  
 | Laptop       | €999     | ~~€1200~~     |  
 | Mouse        | €25      | ~~€30~~       |  
-
-# Tabla con alineación:
-
-| Left align | Right align | Center align |
-| :--------- | ----------: | :----------: |
-| This       |        This |     This     |
-| column     |      column |    column    |
-| will       |        will |     will     |
-| be         |          be |      be      |
-| left       |       right |    center    |
-| aligned    |     aligned |   aligned    |
-
-  `.trim(),  
-},
-    };  
+  
+# Tabla con alineación:  
+  
+| Left align | Right align | Center align |  
+| :--------- | ----------: | :----------: |  
+| This       |        This |     This     |  
+| column     |      column |    column    |  
+| will       |        will |     will     |  
+| be         |          be |      be      |  
+| left       |       right |    center    |  
+| aligned    |     aligned |   aligned    |  
+            `.trim(),  
+        },  
+        "markdown-patch-images": {  
+            type: PatchType.DOCUMENT,  
+            markdownContent: `  
+# Imágenes de Markdown  
+    
+## Imagen directa:  
+![Landing Image](https://documentero.com/custom/landing4.png)  
+![](https://nci-media.cancer.gov/pdq/media/images/765321.jpg)  
+    
+Texto después de la imagen.  
+    
+## Imagen con texto alternativo:  
+![Documentero Landing](https://documentero.com/custom/landing4.png)  
+  
+## Imagen con referencia:  
+Esta es una imagen de documentero ![image reference][test-image].  
+  
+Esta es una segunda referencia a la imagen de documentero ![image reference][test-image].  
+  
+[test-image]: https://documentero.com/custom/landing4.png  
+            `.trim(),  
+            imageResolver: async (url: string) => {  
+                console.log(`Resolviendo imagen: ${url}`);  
+                try {  
+                    const response = await fetch(url);  
+                    if (!response.ok) {  
+                        throw new Error(`HTTP error! status: ${response.status}`);  
+                    }  
+                      
+                    const buffer = await response.arrayBuffer();  
+                      
+                    // Determinar el tipo basado en la URL o headers  
+                    const contentType = response.headers.get('content-type');  
+                    let type: "jpg" | "png" | "gif" | "bmp" = "png"; // valor por defecto  
+                      
+                    if (contentType?.includes('jpeg') || url.includes('.jpg') || url.includes('.jpeg')) {  
+                        type = "jpg";  
+                    } else if (contentType?.includes('png') || url.includes('.png')) {  
+                        type = "png";  
+                    } else if (contentType?.includes('gif') || url.includes('.gif')) {  
+                        type = "gif";  
+                    } else if (contentType?.includes('bmp') || url.includes('.bmp')) {  
+                        type = "bmp";  
+                    }  
+                      
+                    return {  
+                        image: new Uint8Array(buffer),  
+                        width: 400, // Ancho deseado en píxeles  
+                        height: 300, // Alto deseado en píxeles  
+                        type  
+                    };  
+                } catch (error) {  
+                    console.error(`Error al resolver imagen ${url}:`, error);  
+                    throw error;  
+                }  
+            }  
+        },  
+    };
   
     console.log("Iniciando procesamiento de patches de Markdown...");  
     const processedPatches = await processor.processMarkdownPatches(markdownPatches);  
@@ -151,18 +207,9 @@ Enlaces con formato: [**Enlace en negrita**](https://documentero.com/) y [*enlac
     fs.writeFileSync("output/output-markdown-emphasis-demo.docx", result);  
       
     console.log("=".repeat(60));  
-    console.log("🎉 Demo de conversión Markdown a DOCX completada exitosamente!");  
+    console.log("Demo de conversión Markdown a DOCX completada exitosamente!");  
     console.log("=".repeat(60));  
     console.log("📁 Archivo generado: output/output-markdown-emphasis-demo.docx");  
-    console.log("");  
-    console.log("✅ Funcionalidades implementadas:");  
-    console.log("   • Elementos de énfasis (negrita, cursiva, tachado)");  
-    console.log("   • Listas numeradas y con viñetas");  
-    console.log("   • Listas anidadas multinivel");  
-    console.log("   • Encabezados (H1-H6)");  
-    console.log("   • Task Lists con checkboxes interactivos");  
-    console.log("   • Integración completa con sistema de numeración y estilos");  
-    console.log("=".repeat(60));  
 }  
   
 testMarkdownEmphasis().catch((error) => {  
