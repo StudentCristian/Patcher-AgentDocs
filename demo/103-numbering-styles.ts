@@ -1,5 +1,6 @@
 // demo/102-test-style-interceptor.ts  / npm run run-ts -- ./demo/103-numbering-styles.ts
 import * as fs from "fs";
+import "./setup-jsdom"; 
 import { Paragraph, HeadingLevel, TextRun, patchDocument, PatchType, CheckBox } from "docx";
 
 async function testStyleInterceptor() {
