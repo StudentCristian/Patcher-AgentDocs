@@ -97,7 +97,7 @@ flowchart TD
 #### 2. `src/compose/numbering/numbering-extractor.ts`
 **Propósito**: Extrae configuraciones de `numbering.xml` existente
 **Funcionalidades**:
-- `extractExistingNumbering()`: Lee y parsea numbering.xml del documento [2-cite-6](#2-cite-6) 
+- `extractExistingNumbering()`: Lee y parsea numbering.xml del documento 
 - Permite preservar numeraciones existentes
 
 #### 3. `src/compose/styling/style-mapper.ts`
