@@ -41,10 +41,10 @@ export const replacer = ({
 }): IReplacerResult => {  
     const formatter = new Formatter(styleMapper); 
     const renderedParagraphs = findLocationOfText(json, patchText);  
-    console.log(`Buscando "${patchText}": encontrados ${renderedParagraphs.length} párrafos`);  
+    // console.log(`Buscando "${patchText}": encontrados ${renderedParagraphs.length} párrafos`);  
   
     if (renderedParagraphs.length === 0) {  
-        console.log(`No se encontró el placeholder "${patchText}" en el documento`);  
+        // console.log(`No se encontró el placeholder "${patchText}" en el documento`);  
         return { element: json, didFindOccurrence: false };  
     }  
   

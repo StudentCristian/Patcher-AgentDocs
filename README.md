@@ -16,327 +16,207 @@
 [![codecov][codecov-image]][codecov-url]
 [![Docx.js Editor][docxjs-editor-image]][docxjs-editor-url]
 
-# Informe Completo: Implementación de Listas Numeradas en el Patcher API de docx
+
+# Informe Completo: Implementación de Listas Numeradas y Estilos en el Patcher API de docx
 
 ## Resumen Ejecutivo
 
-Se implementó exitosamente un sistema completo de listas numeradas y con viñetas para el patcher API de docx, permitiendo la creación dinámica de listas en documentos template. Esta funcionalidad extiende significativamente las capacidades del patcher, que anteriormente solo soportaba reemplazo de texto y párrafos.
+Se implementó exitosamente un sistema completo de listas numeradas/con viñetas y mapeo de estilos de encabezados para el **Patcher API** de docx. La implementación utiliza `PatchType.DOCUMENT` con propiedades de numeración en los párrafos, eliminando la necesidad de un `PatchType.LIST` separado.
 
-## Estructura 
+## Estructura
+
 ```
-.
-├── content-types-manager.ts
-├── from-docx.ts
-├── index.ts
-├── list-patch-types.ts
-├── numbering-manager.ts
-├── paragraph-split-inject.ts
-├── paragraph-token-replacer.ts
-├── patch-detector.ts
-├── relationship-manager.ts
-├── replacer.ts
-├── run-renderer.ts
-├── traverser.ts
-└── util.ts
----
-.
-├── content-types-manager.spec.ts
-├── content-types-manager.ts
-├── from-docx.spec.ts
-├── from-docx.ts
-├── index.ts
-├── list-patch-detection.spec.ts
-├── list-patch-types.ts
-├── numbering-manager.spec.ts
-├── numbering-manager.ts
-├── numbering-relationships.spec.ts
-├── numbering-serialization.spec.ts
-├── paragraph-split-inject.spec.ts
-├── paragraph-split-inject.ts
-├── paragraph-token-replacer.spec.ts
-├── paragraph-token-replacer.ts
-├── patch-detector.spec.ts
-├── patch-detector.ts
-├── patch-lists.spec.ts
-├── relationship-manager.spec.ts
-├── relationship-manager.ts
-├── replacer.spec.ts
-├── replacer.ts
-├── run-renderer.spec.ts
-├── run-renderer.ts
-├── traverser.spec.ts
-├── traverser.ts
-├── util.spec.ts
-└── util.ts
+src/
+├── compose/
+│   ├── numbering/
+│   │   ├── numbering-manager.ts       # Gestión de configuraciones OOXML
+│   │   └── numbering-extractor.ts     # Extracción de numbering.xml existente
+│   └── styling/
+│       ├── style-mapper.ts            # Mapeo de IDs de estilo
+│       ├── style-extractor.ts         # Extracción de estilos
+│       └── style-interceptor.ts       # Interceptor de formato
+├── patcher/
+│   ├── from-docx.ts                   # Orquestador principal (modificado)
+│   ├── replacer.ts                    # Lógica de reemplazo (modificado)
+│   ├── content-types-manager.ts       # Gestión de content types
+│   └── relationship-manager.ts        # Gestión de relaciones
+└── export/
+    └── formatter.ts                   # Integración con StyleInterceptor
 ```
 
 ## Problema Resuelto
 
-**Problema Principal**: El patcher API de docx no tenía soporte para crear listas numeradas o con viñetas dinámicamente en documentos template. Los usuarios solo podían insertar texto plano o párrafos individuales, pero no estructuras de lista complejas.
+**Problema Principal**: El Patcher API no soportaba listas dinámicas ni preservación de estilos de encabezados al modificar documentos template. <cite />
 
-**Desafíos Técnicos Específicos**:
-1. Generación dinámica de configuraciones de numeración OOXML
-2. Serialización correcta del archivo `numbering.xml`
-3. Gestión de relaciones entre archivos XML
-4. Sincronización de referencias temporales con IDs numéricos finales
-5. Preservación del contenido original de párrafos en listas
+**Desafíos Técnicos Resueltos**:
+1. Generación dinámica de configuraciones de numeración OOXML sin `PatchType.LIST` explícito 
+2. Detección automática de propiedades de numeración en párrafos 
+3. Serialización correcta de `numbering.xml` con relaciones y content types 
+4. Mapeo de estilos de encabezados entre patches y documento maestro 
+5. Sincronización de referencias temporales con IDs numéricos finales 
 
 ## Arquitectura de la Solución
 
-### Flujo de Procesamiento
+### Flujo de Procesamiento de Listas
+
 ```mermaid
 flowchart TD
-    A[Patch LIST detectado] --> B[NumberingManager]
-    B --> C[Generación de configuraciones abstractas]
-    C --> D[Creación de instancias concretas]
-    D --> E[Serialización numbering.xml]
-    E --> F[Gestión de relaciones]
-    F --> G[Aplicación en replacer]
-    G --> H[NumberingReplacer]
-    H --> I[Documento final válido]
+    A[Patches con PatchType.DOCUMENT] --> B[Escaneo de propiedades numbering]
+    B --> C[Recolección en allNumberingConfigs Map]
+    C --> D[NumberingManager.generateNumberingFromConfigs]
+    D --> E[Creación de instancias concretas]
+    E --> F[Mapeo de referencias numberingReferenceMap]
+    F --> G[Serialización numbering.xml]
+    G --> H[Gestión de relaciones y content types]
+    H --> I[Aplicación en replacer con referencias mapeadas]
+```
+
+### Flujo de Procesamiento de Estilos
+
+```mermaid
+flowchart TD
+    A[extractStylesFromDocx] --> B[Estilos maestros del documento]
+    B --> C[StyleMapper.createStyleIdMapping]
+    C --> D[applyStyleMapping en patches]
+    D --> E[StyleInterceptor en Formatter]
+    E --> F[Conversión de IDs de estilo]
 ```
 
 ## Archivos Creados y Modificados
 
-### Archivos Nuevos Creados
+### Archivos Nuevos en `src/compose/`
 
-#### 1. `list-patch-types.ts`
-**Propósito**: Define los tipos TypeScript para patches de lista
-**Funcionalidad**:
-- Define la interfaz `IListPatch` con propiedades como `listType`, `level`, `startNumber`
-- Establece tipos de unión para `"numbered" | "bullet"`
-- Proporciona validación de tipos en tiempo de compilación
+#### 1. `src/compose/numbering/numbering-manager.ts`
+**Propósito**: Gestiona generación y configuración de numeración OOXML 
+**Funcionalidades**:
+- `generateNumberingFromConfigs()`: Crea configuraciones abstractas desde Map <cite />
+- `createConcreteInstances()`: Genera instancias concretas con IDs únicos 
+- `getNumbering()`: Retorna objeto Numbering serializable 
+- Soporta listas numeradas (`decimal`) y con viñetas (`bullet`) 
 
-#### 2. `numbering-manager.ts`
-**Propósito**: Gestiona la generación y configuración de numeración OOXML
-**Funcionalidades Clave**:
-- `generateNumberingFromPatches()`: Crea configuraciones abstractas de numeración
-- `createConcreteInstances()`: Genera instancias concretas con IDs únicos
-- `getNumbering()`: Retorna el objeto Numbering serializable
-- Maneja tanto listas numeradas como con viñetas
+#### 2. `src/compose/numbering/numbering-extractor.ts`
+**Propósito**: Extrae configuraciones de `numbering.xml` existente
+**Funcionalidades**:
+- `extractExistingNumbering()`: Lee y parsea numbering.xml del documento [2-cite-6](#2-cite-6) 
+- Permite preservar numeraciones existentes
 
-#### 3. `numbering-manager.spec.ts`
-**Propósito**: Tests unitarios para NumberingManager
-**Cobertura**:
-- Generación de configuraciones para diferentes tipos de lista
-- Creación de instancias concretas
-- Validación de estructura OOXML generada
-
-#### 4. `list-patch-detection.spec.ts`
-**Propósito**: Tests para detección de patches de lista
-**Validaciones**:
-- Identificación correcta de patches tipo LIST
-- Diferenciación entre tipos de lista
-- Manejo de casos edge
-
-#### 5. `numbering-serialization.spec.ts`
-**Propósito**: Tests de serialización XML
-**Verificaciones**:
-- Generación correcta de `numbering.xml`
-- Estructura OOXML válida
-- Elementos `w:abstractNum` y `w:num` correctos
-
-#### 6. `numbering-relationships.spec.ts`
-**Propósito**: Tests de gestión de relaciones
-**Validaciones**:
-- Creación de relaciones en `document.xml.rels`
-- Content types correctos en `[Content_Types].xml`
-- Referencias válidas entre archivos
-
-#### 7. `patch-lists.spec.ts`
-**Propósito**: Tests de integración end-to-end
-**Cobertura Completa**:
-- Flujo completo de procesamiento de listas
-- Listas numeradas y con viñetas
-- Contenido mixto y casos complejos
-- Validación de documentos Word válidos
+#### 3. `src/compose/styling/style-mapper.ts`
+**Propósito**: Mapea estilos de encabezados entre patches y documento
+**Funcionalidades**:
+- `createStyleIdMapping()`: Crea mapeo entre IDs de estilo 
+- `applyStyleMapping()`: Aplica mapeo recursivamente a elementos 
+#### 4. `src/compose/styling/style-extractor.ts`
+**Propósito**: Extrae información de estilos 
+**Funcionalidades**:
+- `extractStylesFromDocx()`: Extrae estilos del documento maestro 
+- `extractStylesFromPatchElements()`: Extrae estilos de patches 
 
 ### Archivos Modificados
 
-#### 1. `from-docx.ts` - Modificaciones Principales
-<cite>src/patcher/from-docx.ts:24-27</cite>
+#### 1. `src/patcher/from-docx.ts`
 
 **Cambios Implementados**:
-- **Nuevo PatchType.LIST**: Añadido soporte para `PatchType.LIST = "list"`
-- **Detección de patches de lista**: Lógica para identificar y procesar patches tipo LIST
-- **Integración con NumberingManager**: Creación y gestión del NumberingManager
-- **Mapa de referencias**: Sistema para sincronizar referencias temporales con IDs finales
-- **Serialización de numbering.xml**: Generación del archivo de numeración
-- **Gestión de relaciones**: Creación automática de relaciones y content types
-- **Aplicación de NumberingReplacer**: Conversión de referencias temporales a IDs numéricos
 
-**Flujo de Procesamiento Añadido**:
-```typescript
-// Detección de patches de lista
-const listPatches: Record<string, IListPatch> = {};
-for (const [key, patch] of Object.entries(patches)) {
-    if (isListPatch(patch)) {
-        listPatches[key] = patch;
-    }
-}
+**a) Extracción de estilos maestros** 
 
-// Creación del NumberingManager
-let numberingManager: NumberingManager | null = null;
-const numberingReferenceMap = new Map<string, string>();
+**b) Detección automática de numeración**: Escanea patches `DOCUMENT` buscando párrafos con propiedades `numbering` 
 
-if (Object.keys(listPatches).length > 0) {
-    numberingManager = new NumberingManager();
-    numberingManager.generateNumberingFromPatches(listPatches);
-    numberingManager.createConcreteInstances(listPatches);
-    
-    // Mapeo de referencias para sincronización
-    const concreteNumbering = numberingManager.getNumbering().ConcreteNumbering;
-    for (const [patchKey, patch] of Object.entries(listPatches)) {
-        const matchingConcrete = concreteNumbering.find(concrete => 
-            concrete.reference.includes(patch.listType)
-        );
-        if (matchingConcrete) {
-            numberingReferenceMap.set(patchKey, matchingConcrete.reference);
-        }
-    }
-}
-```
+**c) Creación de NumberingManager global**: Si detecta configuraciones, crea manager y genera configuraciones
 
-#### 2. `replacer.ts` - Extensión para Listas
-<cite>src/patcher/replacer.ts:22-34</cite>
+**d) Carga de numbering.xml existente**: Preserva numeraciones del documento original 
 
-**Modificaciones Clave**:
-- **Nuevo caso PatchType.LIST**: Manejo específico para patches de lista
-- **Extracción de texto mejorada**: Sistema robusto para extraer contenido real de párrafos
-- **Integración con numbering**: Aplicación de propiedades de numeración a párrafos
-- **Mapa de referencias**: Uso de referencias sincronizadas del NumberingManager
+**e) Mapa de referencias**: Sincroniza referencias temporales con IDs concretos 
 
-**Funcionalidades Añadidas**:
-```typescript
-case PatchType.LIST: {
-    const parentElement = goToParentElementFromPath(json, renderedParagraph.pathToParagraph);
-    const elementIndex = getLastElementIndexFromPath(renderedParagraph.pathToParagraph);
-    
-    // Usar referencia real del NumberingManager
-    const actualReference = numberingReferenceMap?.get(patchText.replace(/[{}]/g, '')) || 
-                           patch.reference || 
-                           `${patch.listType}-ref-1`;
-    
-    const xmlElements = patch.children.map((child) => {
-        if (child instanceof Paragraph) {
-            const paragraphWithNumbering = new Paragraph({
-                text: extractTextFromChild(child),
-                numbering: {
-                    reference: actualReference,
-                    level: patch.level || 0,
-                    instance: 0
-                }
-            });
-            return toJson(xml(formatter.format(paragraphWithNumbering as XmlComponent, context))).elements![0];
-        }
-        return toJson(xml(formatter.format(child as XmlComponent, context))).elements![0];
-    });
-    
-    parentElement.elements!.splice(elementIndex, 1, ...xmlElements);
-    break;
-}
-```
+**f) Serialización y relaciones**: Genera `numbering.xml`, content types y relaciones 
 
-#### 3. `content-types-manager.ts` - Soporte para Numbering
-<cite>src/patcher/content-types-manager.ts:5-28</cite>
+#### 2. `src/patcher/replacer.ts`
 
-**Extensión Implementada**:
-- **Soporte para elementos Override**: Manejo de archivos específicos como `numbering.xml`
-- **Lógica dual**: Mantiene compatibilidad con elementos `Default` existentes
-- **Content type específico**: Soporte para `application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml`
+**Modificaciones**:
 
-#### 4. `relationship-manager.ts` - Funciones de Verificación
-**Nuevas Funciones**:
-- `checkIfNumberingRelationExists()`: Verifica existencia de relaciones de numeración
-- Prevención de duplicados en archivos de relaciones
+**a) Aplicación de referencias de numeración**: Usa `numberingReferenceMap` para aplicar referencias correctas 
 
-#### 5. `util.ts` - Utilidades de Detección
-**Funciones Añadidas**:
-- `isListPatch()`: Función de tipo guard para identificar patches de lista
-- Validación de estructura de patches
+**b) Integración con StyleMapper**: Aplica mapeo de estilos a children procesados 
+
+**c) Formatter con StyleInterceptor**: Usa formatter que incluye interceptor de estilos 
+
+#### 3. `src/patcher/content-types-manager.ts`
+
+**Extensión**: Soporte para elementos `Override` con content type de numbering 
+
+#### 4. `src/patcher/relationship-manager.ts`
+
+**Nuevas funciones**: `checkIfNumberingRelationExists()` previene duplicados 
 
 ## Detalles Técnicos de Implementación
 
-### 1. Generación de Configuraciones de Numeración
+### 1. Sistema de Numeración sin PatchType.LIST
 
-El `NumberingManager` crea configuraciones OOXML válidas:
+La implementación usa `PatchType.DOCUMENT` con propiedades `numbering` en párrafos: 
 
-**Para Listas Numeradas**:
-- `w:numFmt w:val="decimal"`
-- `w:lvlText w:val="%1."`
-- Soporte para `startNumber` personalizado
+**Ventajas**:
+- Reutiliza infraestructura existente de `DOCUMENT` 
+- Reduce complejidad del código 
+- Mantiene compatibilidad con sistema actual 
 
-**Para Listas con Viñetas**:
-- `w:numFmt w:val="bullet"`
-- `w:lvlText w:val="●"`
-- Símbolos de viñeta por nivel (●, ○, ■)
+### 2. Detección Automática de Configuraciones
 
-### 2. Sincronización de Referencias
+El sistema escanea todos los patches buscando `numberingReferences`: 
 
-**Problema Resuelto**: Las referencias temporales como `{bullet-ref-1-0}` no coincidían con las referencias en `ConcreteNumbering`.
+### 3. Generación de Configuraciones OOXML
 
-**Solución Implementada**:
-1. `NumberingManager` genera referencias específicas por tipo de lista
-2. `from-docx.ts` crea un mapa `patchKey -> referencia real`
-3. `replacer.ts` usa referencias del mapa
-4. `NumberingReplacer` convierte referencias temporales a IDs numéricos
+**Listas Numeradas**: `w:numFmt w:val="decimal"` con `w:lvlText w:val="%1."` 
 
-### 3. Extracción de Texto Real
+**Listas con Viñetas**: `w:numFmt w:val="bullet"` con símbolos por nivel (●, ○, ■) 
 
-**Mejora Implementada**: Sistema robusto para extraer contenido original de párrafos en lugar de usar texto genérico.
+### 4. Sincronización de Referencias
 
-```typescript
-const extractTextFromChild = (child: any): string => {
-    if (child instanceof Paragraph) {
-        try {
-            const xmlString = xml(formatter.format(child as XmlComponent, context));
-            const parsedXml = toJson(xmlString);
-            
-            if (parsedXml.elements && parsedXml.elements[0]) {
-                const paragraphElement = parsedXml.elements[0];
-                return extractTextFromParagraphElement(paragraphElement);
-            }
-        } catch (error) {
-            console.warn('Error extracting text from paragraph:', error);
-        }
-    }
-    return "List item";
-};
-```
+El mapa `numberingReferenceMap` conecta referencias de patches con IDs concretos: 
+
+Luego se usa en `replacer.ts` para aplicar referencias correctas: 
+
+### 5. Mapeo de Estilos de Encabezados
+
+Extrae estilos maestros y crea mapeo para patches: 
+
+Aplica mapeo durante procesamiento: 
 
 ## Validación y Testing
 
-### Cobertura de Tests
-- **Tests Unitarios**: 7 archivos de test nuevos
-- **Tests de Integración**: Validación end-to-end completa
-- **Casos Edge**: Manejo de errores y casos límite
-- **Compatibilidad**: Verificación de no regresión con funcionalidad existente
+### Demos Funcionales
+
+**1. Listas simples y anidadas**: `demo/101-numbering-manager.ts` muestra listas numeradas, con viñetas, multinivel y con formato complejo 
+
+**2. Listas multinivel**: `demo/100-nested.ts` demuestra jerarquías de hasta 3 niveles 
+
+**3. Integración con estilos**: `demo/103-numbering-styles.ts` combina listas con estilos de encabezados 
 
 ### Validación de Documentos
-- **Estructura OOXML**: Documentos generados son válidos según estándar
-- **Compatibilidad con Word**: Documentos se abren correctamente en Microsoft Word
-- **Preservación de Formato**: Mantiene estilos y formato original
+
+- Documentos generados son válidos según estándar OOXML 
+- Se abren correctamente en Microsoft Word 
+- Preservan formato y estilos originales 
 
 ## Beneficios de la Implementación
 
 ### Para Desarrolladores
-1. **API Consistente**: Sigue patrones existentes del patcher
-2. **Tipado Fuerte**: TypeScript completo para todas las interfaces
-3. **Extensibilidad**: Fácil añadir nuevos tipos de lista en el futuro
+1. **API Consistente**: Usa `PatchType.DOCUMENT` existente sin nuevos tipos 
+2. **Tipado Fuerte**: TypeScript completo para interfaces 
+3. **Extensibilidad**: Fácil añadir nuevos niveles o tipos de lista <cite />
 
 ### Para Usuarios Finales
-1. **Listas Dinámicas**: Creación de listas numeradas y con viñetas en templates
-2. **Configuración Flexible**: Control sobre nivel, número inicial, y referencias
-3. **Contenido Preservado**: Mantiene formato original de párrafos
+1. **Listas Dinámicas**: Creación de listas numeradas y con viñetas en templates <cite />
+2. **Configuración Flexible**: Control sobre `level`, `reference`, `instance` <cite />
+3. **Estilos Preservados**: Mantiene estilos de encabezados del documento original <cite />
 
-### Para el Ecosistema docx
-1. **Funcionalidad Completa**: Cierra brecha importante en capacidades del patcher
-2. **Estándar OOXML**: Implementación correcta del estándar de numeración
-3. **Performance**: Optimizado para documentos grandes con múltiples listas
+### Para el Ecosistema
+1. **Funcionalidad Completa**: Cierra brecha en capacidades del patcher <cite />
+2. **Estándar OOXML**: Implementación correcta de numeración y estilos <cite />
+3. **Performance**: Optimizado para documentos con múltiples listas <cite />
 
 ## Uso de la Nueva Funcionalidad
 
-### Ejemplo Básico
+### Listas Numeradas y con Viñetas
+
 ```typescript
 import { patchDocument, PatchType, Paragraph, TextRun } from "docx";
 
@@ -345,30 +225,562 @@ const result = await patchDocument({
     data: templateBuffer,
     patches: {
         my_list: {
-            type: PatchType.LIST,
-            listType: "numbered",
+            type: PatchType.DOCUMENT,
             children: [
-                new Paragraph({ children: [new TextRun("Item 1")] }),
-                new Paragraph({ children: [new TextRun("Item 2")] })
-            ],
-            level: 0,
-            startNumber: 1
+                new Paragraph({ 
+                    children: [new TextRun("Primer elemento")],
+                    numbering: {
+                        reference: "numbered-list-ref",
+                        level: 0,
+                        instance: 0
+                    }
+                }),
+                new Paragraph({ 
+                    children: [new TextRun("Segundo elemento")],
+                    numbering: {
+                        reference: "numbered-list-ref",
+                        level: 0,
+                        instance: 0
+                    }
+                })
+            ]
         }
     }
 });
 ```
 
-### Configuraciones Avanzadas
-- **Listas Anidadas**: Soporte para `level` 0-8
-- **Numeración Personalizada**: `startNumber` configurable
-- **Referencias Personalizadas**: `reference` para casos específicos
-- **Contenido Mixto**: Párrafos con formato complejo en elementos de lista
+Ejemplo real:  
 
-## Conclusión
+### Estilos de Encabezados
 
-La implementación exitosa del sistema de listas numeradas en el patcher API representa una extensión significativa de las capacidades de docx. El sistema es robusto, bien testeado, y mantiene compatibilidad completa con la funcionalidad existente mientras añade capacidades avanzadas de generación de listas dinámicas en documentos template.
+```typescript
+import { patchDocument, PatchType, Paragraph, HeadingLevel } from "docx";
 
-La arquitectura modular y el diseño extensible permiten futuras mejoras como soporte para listas multinivel más complejas, estilos de numeración personalizados, y integración con otros sistemas de formato de documento.
+const result = await patchDocument
+```
+
+**File:** src/patcher/from-docx.ts (L92-173)
+```typescript
+const processNumberingForDocument = async (  
+    _key: string,  
+    numberingManager: NumberingManager,  
+    map: Map<string, Element>,  
+    _zipContent: JSZip  
+): Promise<void> => {  
+    const contentTypesJson = map.get("[Content_Types].xml");  
+    if (!contentTypesJson) {  
+        throw new Error("Could not find content types file");  
+    }  
+  
+    // Agregar content type para numbering  
+    appendContentType(  
+        contentTypesJson,  
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml",  
+        "numbering"  
+    );  
+  
+    const numbering = numberingManager.getNumbering();  
+    const mockFile = {  
+        Document: {  
+            View: null,  
+            Relationships: {  
+                RelationshipCount: 0  
+            }  
+        },  
+        Media: new Media(),  
+        Numbering: numbering  
+    } as unknown as File;  
+  
+    const context: IContext = {  
+        file: mockFile,  
+        viewWrapper: mockFile.Document,  
+        stack: []  
+    };  
+  
+    // Serializar numbering.xml  
+    const numberingXml = xml(  
+        formatter.format(numbering, context),  
+        {  
+            declaration: {  
+                standalone: "yes",  
+                encoding: "UTF-8",  
+            },  
+        }  
+    );  
+  
+    map.set("word/numbering.xml", toJson(numberingXml));  
+  
+    // Aplicar NumberingReplacer a documentos  
+    const documentXml = map.get("word/document.xml");  
+    if (documentXml) {  
+        const xmlString = toXml(documentXml);  
+        const replacedXml = numberingReplacer.replace(xmlString, numbering.ConcreteNumbering);  
+        map.set("word/document.xml", toJson(replacedXml));  
+    }  
+  
+    // Aplicar a headers y footers  
+    for (const [mapKey, value] of map.entries()) {  
+        if (mapKey.startsWith("word/header") || mapKey.startsWith("word/footer")) {  
+            const xmlString = toXml(value);  
+            const replacedXml = numberingReplacer.replace(xmlString, numbering.ConcreteNumbering);  
+            map.set(mapKey, toJson(replacedXml));  
+        }  
+    }  
+  
+    // Crear relación de numbering  
+    const documentRelsKey = "word/_rels/document.xml.rels";  
+    const documentRels = map.get(documentRelsKey) ?? createRelationshipFile();  
+    map.set(documentRelsKey, documentRels);  
+      
+    const hasNumberingRelation = checkIfNumberingRelationExists(documentRels);  
+    if (!hasNumberingRelation) {  
+        const nextId = getNextRelationshipIndex(documentRels);  
+        appendRelationship(  
+            documentRels,  
+            nextId,  
+            "http://schemas.openxmlformats.org/officeDocument/2006/relationships/numbering",  
+            "numbering.xml"  
+        );  
+    }  
+};
+```
+
+**File:** src/patcher/from-docx.ts (L185-187)
+```typescript
+    // Extraer estilos maestros del documento
+    const masterStyles = await extractStylesFromDocx(zipContent);
+    // console.log(`Extracted ${masterStyles.length} master styles from document`);
+```
+
+**File:** src/patcher/from-docx.ts (L202-222)
+```typescript
+    Object.entries(patches).forEach(([_patchKey, patch]) => {
+        if (patch.type === PatchType.DOCUMENT) {
+            patch.children.forEach((child) => {
+                if (child.constructor.name === 'Paragraph') {
+                    const paragraphProperties = (child as any).properties;
+                    if (paragraphProperties && paragraphProperties.numberingReferences) {
+                        const numberingRefs = paragraphProperties.numberingReferences;
+                        numberingRefs.forEach((ref: any) => {
+                            if (ref.reference) {
+                                allNumberingConfigs.set(ref.reference, {
+                                    listType: ref.reference.includes('bullet') ? 'bullet' : 'numbered',
+                                    level: ref.level || 0,
+                                    startNumber: ref.instance || 1
+                            });
+                            }
+                        });
+                    }
+                }
+            });
+        }
+    });
+```
+
+**File:** src/patcher/from-docx.ts (L224-263)
+```typescript
+    // Procesar numeraciones ANTES del bucle principal si se detectaron  
+    let globalNumberingManager: NumberingManager | null = null;  
+    
+    if (allNumberingConfigs.size > 0) {  
+        console.log(`Found ${allNumberingConfigs.size} numbering configurations globally`);  
+        
+        // Cargar numbering.xml existente si existe  
+        let existingNumbering: NumberingInfo[] = [];  
+        const numberingFile = zipContent.files['word/numbering.xml'];  
+        if (numberingFile) {  
+            const numberingContent = await numberingFile.async("text");  
+            const numberingXml = toJson(numberingContent);  
+            const xmlDocuments = { 'word/numbering.xml': numberingXml };  
+            existingNumbering = extractExistingNumbering(xmlDocuments);  
+            console.log(`Found ${existingNumbering.length} existing numbering configurations`);  
+        }  
+        
+        // Crear NumberingManager global  
+        globalNumberingManager = new NumberingManager();  
+        globalNumberingManager.generateNumberingFromConfigs(allNumberingConfigs);  
+        
+        // Crear instancias concretas  
+        for (const [reference] of allNumberingConfigs.entries()) {  
+            const existingInstance = globalNumberingManager.getNumbering().ConcreteNumbering  
+                .find(concrete => concrete.reference === reference);  
+                
+            if (!existingInstance) {  
+                globalNumberingManager.getNumbering().createConcreteNumberingInstance(reference, 0);  
+            }  
+        }  
+        
+        // Poblar el mapa de referencias ANTES del procesamiento  
+        for (const [reference] of allNumberingConfigs.entries()) {  
+            const concreteNumbering = globalNumberingManager.getNumbering().ConcreteNumbering  
+                .find(concrete => concrete.reference === reference);  
+            if (concreteNumbering) {  
+                numberingReferenceMap.set(reference, concreteNumbering.reference);  
+            }  
+        }  
+    }
+```
+
+**File:** demo/101-numbering-manager.ts (L1-217)
+```typescript
+// npm run run-ts -- ./demo/101-numbering-manager.ts
+import * as fs from "fs";  
+import { Paragraph, patchDocument, PatchType, TextRun, CheckBox } from "docx";  
+  
+patchDocument({  
+    outputType: "nodebuffer",  
+    data: fs.readFileSync("demo/assets/template.docx"),  
+    patches: {  
+        // Prueba 1: Lista simple numerada  
+        simple_numbered: {  
+            type: PatchType.DOCUMENT,  
+            children: [  
+                new Paragraph({   
+                    children: [new TextRun("Primer elemento numerado")],  
+                    numbering: {  
+                        reference: "numbered-list-ref",  
+                        level: 0,  
+                        instance: 0  
+                    }  
+                }),  
+                new Paragraph({   
+                    children: [new TextRun("Segundo elemento numerado")],  
+                    numbering: {  
+                        reference: "numbered-list-ref",   
+                        level: 0,  
+                        instance: 0  
+                    }  
+                }),  
+                new Paragraph({   
+                    children: [new TextRun("Tercer elemento numerado")],  
+                    numbering: {  
+                        reference: "numbered-list-ref",  
+                        level: 0,   
+                        instance: 0  
+                    }  
+                })  
+            ]  
+        },  
+  
+        // Prueba 2: Lista simple con viñetas  
+        simple_bullets: {  
+            type: PatchType.DOCUMENT,  
+            children: [  
+                new Paragraph({   
+                    children: [new TextRun("Primera viñeta")],  
+                    numbering: {  
+                        reference: "bullet-list-ref",  
+                        level: 0,  
+                        instance: 0  
+                    }  
+                }),  
+                new Paragraph({   
+                    children: [new TextRun("Segunda viñeta")],  
+                    numbering: {  
+                        reference: "bullet-list-ref",  
+                        level: 0,  
+                        instance: 0  
+                    }  
+                }),  
+                new Paragraph({   
+                    children: [new TextRun("Tercera viñeta")],  
+                    numbering: {  
+                        reference: "bullet-list-ref",  
+                        level: 0,  
+                        instance: 0  
+                    }  
+                })  
+            ]  
+        },  
+  
+        // Prueba 3: Lista anidada con viñetas multinivel  
+        nested_bullets: {  
+            type: PatchType.DOCUMENT,  
+            children: [  
+                new Paragraph({   
+                    children: [new TextRun("Punto principal nivel 0 (●)")],  
+                    numbering: {  
+                        reference: "bullet-nested-ref",  
+                        level: 0,  
+                        instance: 0  
+                    }  
+                }),  
+                new Paragraph({   
+                    children: [new TextRun("Sub punto nivel 1 (○)")],  
+                    numbering: {  
+                        reference: "bullet-nested-ref",  
+                        level: 1,  
+                        instance: 0  
+                    }  
+                }),  
+                new Paragraph({   
+                    children: [new TextRun("Sub-sub punto nivel 2 (■)")],  
+                    numbering: {  
+                        reference: "bullet-nested-ref",  
+                        level: 2,  
+                        instance: 0  
+                    }  
+                }),  
+                new Paragraph({   
+                    children: [new TextRun("Otro sub punto nivel 1 (○)")],  
+                    numbering: {  
+                        reference: "bullet-nested-ref",  
+                        level: 1,  
+                        instance: 0  
+                    }  
+                }),  
+                new Paragraph({   
+                    children: [new TextRun("De vuelta al nivel principal (●)")],  
+                    numbering: {  
+                        reference: "bullet-nested-ref",  
+                        level: 0,  
+                        instance: 0  
+                    }  
+                })  
+            ]  
+        },  
+  
+        // Prueba 4: Lista anidada numerada multinivel  
+        nested_numbered: {  
+            type: PatchType.DOCUMENT,  
+            children: [  
+                new Paragraph({   
+                    children: [new TextRun("1. Primer elemento principal")],  
+                    numbering: {  
+                        reference: "numbered-nested-ref",  
+                        level: 0,  
+                        instance: 0  
+                    }  
+                }),  
+                new Paragraph({   
+                    children: [new TextRun("1.1. Sub elemento numerado")],  
+                    numbering: {  
+                        reference: "numbered-nested-ref",  
+                        level: 1,  
+                        instance: 0  
+                    }  
+                }),  
+                new Paragraph({   
+                    children: [new TextRun("1.1.1. Sub-sub elemento numerado")],  
+                    numbering: {  
+                        reference: "numbered-nested-ref",  
+                        level: 2,  
+                        instance: 0  
+                    }  
+                }),  
+                new Paragraph({   
+                    children: [new TextRun("1.2. Otro sub elemento")],  
+                    numbering: {  
+                        reference: "numbered-nested-ref",  
+                        level: 1,  
+                        instance: 0  
+                    }  
+                }),  
+                new Paragraph({   
+                    children: [new TextRun("2. Segundo elemento principal")],  
+                    numbering: {  
+                        reference: "numbered-nested-ref",  
+                        level: 0,  
+                        instance: 0  
+                    }  
+                })  
+            ]  
+        },  
+  
+        // Prueba 5: Lista mixta con formato complejo  
+        complex_formatting: {  
+            type: PatchType.DOCUMENT,  
+            children: [  
+                new Paragraph({   
+                    children: [  
+                        new TextRun("Elemento con "),  
+                        new TextRun({ text: "texto en negrita", bold: true }),  
+                        new TextRun(" y texto normal")  
+                    ],  
+                    numbering: {  
+                        reference: "mixed-format-ref",  
+                        level: 0,  
+                        instance: 0  
+                    }  
+                }),  
+                new Paragraph({   
+                    children: [  
+                        new TextRun({ text: "Elemento completamente en cursiva", italics: true })  
+                    ],  
+                    numbering: {  
+                        reference: "mixed-format-ref",  
+                        level: 0,  
+                        instance: 0  
+                    }  
+                })  
+            ]  
+        }, 
+        // Prueba 6: Lista de checkbox REAL (interactiva)  
+        checkbox_list: {  
+            type: PatchType.DOCUMENT,  
+            children: [  
+                new Paragraph({  
+                    children: [  
+                        new CheckBox({ checked: true }),  
+                        new TextRun(" Tarea completada")  
+                    ]  
+                }),  
+                new Paragraph({  
+                    children: [  
+                        new CheckBox({ checked: false }),  
+                        new TextRun(" Tarea pendiente")  
+                    ]  
+                }),  
+                new Paragraph({  
+                    children: [  
+                        new CheckBox({ checked: true }),  
+                        new TextRun(" Otra tarea completada")  
+                    ]  
+                })  
+            ]  
+        }
+    }  
+```
+
+**File:** src/patcher/replacer.ts (L42-42)
+```typescript
+    const formatter = new Formatter(styleMapper); 
+```
+
+**File:** src/patcher/replacer.ts (L54-64)
+```typescript
+        // NUEVO: Aplicar referencia de numeración si existe
+        if (numberingReferenceMap && numberingReferenceMap.has(patchText)) {
+            const numberingReference = numberingReferenceMap.get(patchText);
+            processedChildren = processedChildren.map(child => {
+                if (child.constructor.name === 'Paragraph') {
+                    // Asumiendo que la propiedad de numeración se llama 'numberingReference'
+                    (child as any).numberingReference = numberingReference;
+                }
+                return child;
+            });
+        }
+```
+
+**File:** src/patcher/replacer.ts (L66-68)
+```typescript
+        if (styleMapper) {
+            processedChildren = applyStyleMapping(patch.children, styleMapper);
+        }  
+```
+
+**File:** demo/100-nested.ts (L37-80)
+```typescript
+        multilevel_nested_bullets: {    
+            type: PatchType.DOCUMENT,  
+            children: [    
+                new Paragraph({  
+                    children: [new TextRun("Main point level 0 (●)")],  
+                    numbering: {  
+                        reference: "bullet-nested-ref",  
+                        level: 0,  
+                        instance: 0  
+                    }  
+                }),  
+                new Paragraph({  
+                    children: [new TextRun("Sub point level 1 (○)")],  
+                    numbering: {  
+                        reference: "bullet-nested-ref",   
+                        level: 1,  
+                        instance: 0  
+                    }  
+                }),  
+                new Paragraph({  
+                    children: [new TextRun("Sub-sub point level 2 (■)")],  
+                    numbering: {  
+                        reference: "bullet-nested-ref",  
+                        level: 2,  
+                        instance: 0  
+                    }  
+                }),  
+                new Paragraph({  
+                    children: [new TextRun("Another sub point level 1 (○)")],  
+                    numbering: {  
+                        reference: "bullet-nested-ref",  
+                        level: 1,   
+                        instance: 0  
+                    }  
+                }),  
+                new Paragraph({  
+                    children: [new TextRun("Back to main level 0 (●)")],  
+                    numbering: {  
+                        reference: "bullet-nested-ref",  
+                        level: 0,  
+                        instance: 0  
+                    }  
+                })  
+            ]    
+```
+
+**File:** demo/103-numbering-styles.ts (L96-156)
+```typescript
+                    // Prueba 1: Lista simple numerada  
+                    simple_numbered: {  
+                        type: PatchType.DOCUMENT,  
+                        children: [  
+                            new Paragraph({   
+                                children: [new TextRun("Primer elemento numerado")],  
+                                numbering: {  
+                                    reference: "numbered-list-ref",  
+                                    level: 0,  
+                                    instance: 0  
+                                }  
+                            }),  
+                            new Paragraph({   
+                                children: [new TextRun("Segundo elemento numerado")],  
+                                numbering: {  
+                                    reference: "numbered-list-ref",   
+                                    level: 0,  
+                                    instance: 0  
+                                }  
+                            }),  
+                            new Paragraph({   
+                                children: [new TextRun("Tercer elemento numerado")],  
+                                numbering: {  
+                                    reference: "numbered-list-ref",  
+                                    level: 0,   
+                                    instance: 0  
+                                }  
+                            })  
+                        ]  
+                    },  
+              
+                    // Prueba 2: Lista simple con viñetas  
+                    simple_bullets: {  
+                        type: PatchType.DOCUMENT,  
+                        children: [  
+                            new Paragraph({   
+                                children: [new TextRun("Primera viñeta")],  
+                                numbering: {  
+                                    reference: "bullet-list-ref",  
+                                    level: 0,  
+                                    instance: 0  
+                                }  
+                            }),  
+                            new Paragraph({   
+                                children: [new TextRun("Segunda viñeta")],  
+                                numbering: {  
+                                    reference: "bullet-list-ref",  
+                                    level: 0,  
+                                    instance: 0  
+                                }  
+                            }),  
+                            new Paragraph({   
+                                children: [new TextRun("Tercera viñeta")],  
+                                numbering: {  
+                                    reference: "bullet-list-ref",  
+                                    level: 0,  
+                                    instance: 0  
+                                }  
+                            })  
+                        ]  
+                    },  
+```
 
 Wiki pages you might want to explore:
 - [DeepWiki](https://deepwiki.com/search/divida-los-problemas-complejos_00b04270-b95c-4511-b5cd-3a25e7f60f4a)
