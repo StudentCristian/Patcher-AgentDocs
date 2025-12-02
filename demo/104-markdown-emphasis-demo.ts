@@ -1,3 +1,4 @@
+// npm run run-ts demo/104-markdown-emphasis-demo.ts
 import * as fs from "fs";  
 import "./setup-jsdom";  
   
@@ -163,7 +164,7 @@ Esta es una segunda referencia a la imagen de documentero ![image reference][tes
                       
                     // Determinar el tipo basado en la URL o headers  
                     const contentType = response.headers.get('content-type');  
-                    let type: "jpg" | "png" | "gif" | "bmp" = "png"; // valor por defecto  
+                    let type: "jpg" | "png" | "gif" | "bmp" = "png"; 
                       
                     if (contentType?.includes('jpeg') || url.includes('.jpg') || url.includes('.jpeg')) {  
                         type = "jpg";  
@@ -209,11 +210,11 @@ Esta es una segunda referencia a la imagen de documentero ![image reference][tes
     console.log("=".repeat(60));  
     console.log("Demo de conversión Markdown a DOCX completada exitosamente!");  
     console.log("=".repeat(60));  
-    console.log("📁 Archivo generado: output/output-markdown-emphasis-demo.docx");  
+    console.log("Archivo generado: output/output-markdown-emphasis-demo.docx");  
 }  
   
 testMarkdownEmphasis().catch((error) => {  
-    console.error("❌ Error durante la ejecución de la demo:");  
+    console.error("Error durante la ejecución de la demo:");  
     console.error(error);  
     process.exit(1);  
 });

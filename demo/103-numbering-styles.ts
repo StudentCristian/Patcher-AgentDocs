@@ -6,7 +6,7 @@ import { Paragraph, HeadingLevel, TextRun, patchDocument, PatchType, CheckBox } 
 async function testStyleInterceptor() {
     const result = await patchDocument({
         outputType: "nodebuffer",
-        data: fs.readFileSync("demo/assets/doc_espanol.docx"),
+        data: fs.readFileSync("demo/assets/formato-pantano.docx"),
         patches: {
             title: {
                 type: PatchType.DOCUMENT,
