@@ -63,58 +63,52 @@ export class MarkdownPatchProcessor {
       }        
               
       default:        
-        throw new Error(`Tipo de patch no soportado: ${type}`);        
+        throw new Error(`Unsupported patch type: ${type}`);        
     }        
   }  
     
-  private async resolveImages(    
-    markdownContent: string,     
-    imageResolver: (url: string) => Promise<ImageData>,     
-    images: ImageDataMap    
-  ): Promise<void> {    
-    // Parsear el markdown para encontrar imágenes    
-    const tree = this.converter['processor'].parse(markdownContent);    
-        
-    // Recopilar definiciones de imagen    
-    const definitions = new Map<string, string>();    
-    visit(tree as mdast.Root, "definition", (node: mdast.Definition) => {    
-      definitions.set(node.identifier, node.url);    
-    });    
+  private async resolveImages(      
+    markdownContent: string,       
+    imageResolver: (url: string) => Promise<ImageData>,       
+    images: ImageDataMap      
+  ): Promise<void> {      
+    // Parsear el markdown para encontrar imágenes      
+    const tree = this.converter['processor'].parse(markdownContent);          
+      
+    // Recopilar definiciones de imagen      
+    const definitions = new Map<string, string>();      
+    visit(tree as mdast.Root, "definition", (node: mdast.Definition) => {      
+      definitions.set(node.identifier, node.url);      
+    });      
     
-    // Recopilar todas las URLs de imágenes    
-    const imageUrls = new Set<string>();    
-        
-    // Imágenes directas    
-    visit(tree as mdast.Root, "image", (node: mdast.Image) => {    
-      imageUrls.add(node.url);    
-    });    
-        
-    // Referencias de imágenes    
-    visit(tree as mdast.Root, "imageReference", (node: mdast.ImageReference) => {    
-      const url = definitions.get(node.identifier);    
-      if (url) {    
-        imageUrls.add(url);    
-      }    
-    });    
+    // Recopilar todas las URLs de imágenes      
+    const imageUrls = new Set<string>();          
+      
+    // Imágenes directas (visit busca recursivamente en todos los nodos)
+    visit(tree as mdast.Root, "image", (node: mdast.Image) => {      
+      imageUrls.add(node.url);      
+    });          
+      
+    // Referencias de imágenes      
+    visit(tree as mdast.Root, "imageReference", (node: mdast.ImageReference) => {      
+      const url = definitions.get(node.identifier);      
+      if (url) {      
+        imageUrls.add(url);      
+      }      
+    });      
     
-    // Resolver todas las imágenes    
-    const promises = Array.from(imageUrls).map(async (url) => {    
-      try {    
-        const imageData = await imageResolver(url);    
-        return { url, imageData };    
-      } catch (error) {    
-        console.warn(`Failed to resolve image: ${url}`, error);    
-        return null;    
-      }    
-    });    
+    // Resolver TODAS las imágenes - enfoque fail-fast como remark-docx  
+    const promises = Array.from(imageUrls).map(async (url) => {      
+      const imageData = await imageResolver(url);      
+      return { url, imageData };      
+    });      
     
+    // Si alguna imagen falla, Promise.all lanzará el error  
     const results = await Promise.all(promises);    
-    results.forEach((result) => {    
-      if (result) {    
-        images[result.url] = result.imageData;    
-      }    
-    });    
-  }    
+    results.forEach((result) => {      
+      images[result.url] = result.imageData;      
+    });
+  }   
       
   async processMarkdownPatches(      
     markdownPatches: Record<string, MarkdownPatch>      

@@ -8,6 +8,7 @@ import { File } from "@file/file";
 import { FileChild } from "@file/file-child";
 import { IMediaData, Media } from "@file/media";
 import { ConcreteHyperlink, ExternalHyperlink, ParagraphChild } from "@file/paragraph";
+import { Paragraph } from "@file/paragraph/paragraph";
 import { TargetModeType } from "@file/relationships/relationship/relationship";
 import { IContext } from "@file/xml-components";
 import { uniqueId } from "@util/convenience-functions";
@@ -87,6 +88,53 @@ const compareByteArrays = (a: Uint8Array, b: Uint8Array): boolean => {
         }
     }
     return true;
+};
+
+/**
+ * Recursively processes elements to convert ExternalHyperlink to ConcreteHyperlink
+ * and collect hyperlink relationship additions.
+ * This is needed because ExternalHyperlink can be nested inside Paragraph children.
+ */
+const processElementForHyperlinks = (
+    element: ParagraphChild | FileChild,
+    key: string,
+    hyperlinkRelationshipAdditions: IHyperlinkRelationshipAddition[]
+): ParagraphChild | FileChild => {
+    // Handle ExternalHyperlink directly
+    if (element instanceof ExternalHyperlink) {
+        // Process children of the ExternalHyperlink recursively first
+        const processedChildren = element.options.children.map(child => 
+            processElementForHyperlinks(child, key, hyperlinkRelationshipAdditions) as ParagraphChild
+        );
+        
+        const concreteHyperlink = new ConcreteHyperlink(processedChildren, uniqueId());
+        hyperlinkRelationshipAdditions.push({
+            key,
+            hyperlink: {
+                id: concreteHyperlink.linkId,
+                link: element.options.link,
+            },
+        });
+        return concreteHyperlink;
+    }
+    
+    // Handle Paragraph - need to process its children recursively
+    if (element instanceof Paragraph) {
+        const paragraphOptions = (element as any).options;
+        if (paragraphOptions && paragraphOptions.children) {
+            const processedChildren = paragraphOptions.children.map((child: ParagraphChild) =>
+                processElementForHyperlinks(child, key, hyperlinkRelationshipAdditions) as ParagraphChild
+            );
+            // Create a new Paragraph with processed children
+            return new Paragraph({
+                ...paragraphOptions,
+                children: processedChildren,
+            });
+        }
+    }
+    
+    // Return element unchanged if it's not ExternalHyperlink or Paragraph
+    return element;
 };
 
 const processNumberingForDocument = async (  
@@ -323,21 +371,9 @@ export const patchDocument = async <T extends PatchDocumentOutputType = PatchDoc
                 while (true) {
                     const { didFindOccurrence } = replacer({
                         json,
-                        patch: { ...patchValue, children: patchValue.children.map((element) => {  
-                            if (element instanceof ExternalHyperlink) {  
-                                const concreteHyperlink = new ConcreteHyperlink(element.options.children, uniqueId());  
-                                hyperlinkRelationshipAdditions.push({  
-                                    key,  
-                                    hyperlink: {  
-                                        id: concreteHyperlink.linkId,  
-                                        link: element.options.link,  
-                                    },  
-                                });  
-                                return concreteHyperlink;  
-                            } else {  
-                                return element;  
-                            }  
-                        }) } as any,
+                        patch: { ...patchValue, children: patchValue.children.map((element) =>
+                            processElementForHyperlinks(element, key, hyperlinkRelationshipAdditions)
+                        ) } as any,
                         patchText,
                         context,
                         keepOriginalStyles,

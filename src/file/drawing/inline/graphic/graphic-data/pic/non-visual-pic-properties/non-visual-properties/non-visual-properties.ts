@@ -17,6 +17,8 @@ import { NonVisualPropertiesAttributes } from "./non-visual-properties-attribute
 // </complexType>
 
 export class NonVisualProperties extends XmlComponent {
+    private hyperlinkAdded = false;
+
     public constructor() {
         super("pic:cNvPr");
 
@@ -30,15 +32,18 @@ export class NonVisualProperties extends XmlComponent {
     }
 
     public prepForXml(context: IContext): IXmlableObject | undefined {
-        for (let i = context.stack.length - 1; i >= 0; i--) {
-            const element = context.stack[i];
-            if (!(element instanceof ConcreteHyperlink)) {
-                continue;
+        // Only add hlinkClick once to prevent duplicates
+        if (!this.hyperlinkAdded) {
+            for (let i = context.stack.length - 1; i >= 0; i--) {
+                const element = context.stack[i];
+                if (!(element instanceof ConcreteHyperlink)) {
+                    continue;
+                }
+
+                this.root.push(createHyperlinkClick(element.linkId, false));
+                this.hyperlinkAdded = true;
+                break;
             }
-
-            this.root.push(createHyperlinkClick(element.linkId, false));
-
-            break;
         }
 
         return super.prepForXml(context);

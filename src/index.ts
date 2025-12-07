@@ -7,5 +7,6 @@ export * from "./util";
 export * from "./patcher";
 export * from "./compose";
 export { MarkdownConverter } from "./patcher/markdown-converter";  
+export type { ImageData, ImageDataMap } from "./patcher/markdown-converter";  
 export { MarkdownPatchProcessor } from "./patcher/markdown-patch-processor";  
 export type { MarkdownPatch } from "./patcher/markdown-patch-processor";
