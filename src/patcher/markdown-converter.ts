@@ -25,7 +25,8 @@ export type ImageData = {
 interface Decoration {  
   emphasis?: boolean;  
   strong?: boolean;  
-  delete?: boolean;  
+  delete?: boolean;
+  indent?: number;  
 }  
   
 interface ListContext {  
@@ -121,7 +122,8 @@ export class MarkdownConverter {
           } else {  
             const childNodes = this.convertNodes(node.children, deco, null, images, definitions);  
             const paragraph = new Paragraph({  
-              children: childNodes as ParagraphChild[]  
+              children: childNodes as ParagraphChild[],
+              indent: deco.indent ? { start: 720 * deco.indent } : undefined,
             });  
             results.push(paragraph);  
           }  
@@ -131,6 +133,17 @@ export class MarkdownConverter {
           const headingResult = this.buildHeading(node, deco, images, definitions);  
           results.push(headingResult);  
           break;  
+        }
+        case "blockquote": {
+          const blockquoteResults = this.convertNodes(
+            (node as mdast.Blockquote).children,
+            { ...deco, indent: (deco.indent || 0) + 1 },
+            listContext,
+            images,
+            definitions
+          );
+          results.push(...blockquoteResults);
+          break;
         }  
         case "list": {  
           const listResults = this.buildList(node, deco, listContext, images, definitions);  
@@ -234,9 +247,8 @@ export class MarkdownConverter {
     const listType = ordered ? "numbered" : "bullet";  
     const level = parentContext ? parentContext.level + 1 : 0;  
       
-    const timestamp = Date.now();  
-    const randomId = Math.random().toString(36).substr(2, 9);  
-    const listUniqueId = `md-${listType}-${level}-${timestamp}-${randomId}`;  
+    const listContentHash = this.hashListContent(children, listType, level);
+    const listUniqueId = `md-${listType}-${level}-${listContentHash}`;  
       
     this.listConfigurations.set(listUniqueId, {  
       listType,  
@@ -436,6 +448,36 @@ export class MarkdownConverter {
       ],  
     });  
   }  
+
+  private hashListContent(children: mdast.ListItem[], listType: string, level: number): string {
+    const content = JSON.stringify({
+      listType,
+      level,
+      items: children.map(item => ({
+        checked: item.checked,
+        content: this.extractTextContent(item.children)
+      }))
+    });
+    
+    // Hash simple de 32-bit
+    let hash = 0;
+    for (let i = 0; i < content.length; i++) {
+      const char = content.charCodeAt(i);
+      hash = ((hash << 5) - hash) + char;
+      hash = hash & hash; // Convert to 32-bit integer
+    }
+    return Math.abs(hash).toString(36);
+  }
+
+  private extractTextContent(nodes: mdast.Content[]): string {
+    return nodes.map(node => {
+      if (node.type === 'text') return (node as mdast.Text).value;
+      if ('children' in node && Array.isArray(node.children)) {
+        return this.extractTextContent(node.children as mdast.Content[]);
+      }
+      return '';
+    }).join('');
+  }
 
   getListConfigurations(): Map<string, { listType: string; level: number }> {  
     return new Map(this.listConfigurations);  

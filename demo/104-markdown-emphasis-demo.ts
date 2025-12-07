@@ -24,6 +24,15 @@ async function testMarkdownEmphasis() {
         "markdown-patch-lists": {  
             type: PatchType.DOCUMENT,  
             markdownContent: `  
+
+# tabla
+
+| Tables        | Are           | Cool  |
+| :------------ |:-------------:| -----:|
+| col 3 is      | right-aligned | $1600 |
+| col 2 is      | centered      |   $12 |
+| zebra stripes | are neat      |    $1 |
+
 # Listas de Markdown  
   
 ## Listas sin orden:  
@@ -104,53 +113,105 @@ Enlaces con formato: [**Enlace en negrita**](https://documentero.com/) y [*enlac
         "markdown-patch-tables": {  
             type: PatchType.DOCUMENT,  
             markdownContent: `  
-# Tablas de Markdown  
-  
-## Tabla básica:  
-| Nombre | Edad | Ciudad |  
-|--------|------|--------|  
-| Juan   | 25   | Madrid |  
-| María  | 30   | Barcelona |  
-| Pedro  | 28   | Valencia |  
-  
-## Tabla con formato:  
-| **Producto** | *Precio* | ~~Descuento~~ |  
-|--------------|----------|---------------|  
-| Laptop       | €999     | ~~€1200~~     |  
-| Mouse        | €25      | ~~€30~~       |  
-  
-# Tabla con alineación:  
-  
-| Left align | Right align | Center align |  
-| :--------- | ----------: | :----------: |  
-| This       |        This |     This     |  
-| column     |      column |    column    |  
-| will       |        will |     will     |  
-| be         |          be |      be      |  
-| left       |       right |    center    |  
-| aligned    |     aligned |   aligned    |  
+## Contenido para estructuracion
+
+Contenido generado basado en: "Estructuración"
+
+Este es un **ejemplo de markdown** con:
+- Listas
+- Formato
+- Y más
+
+# Markdown Cheatsheet
+
+## Headings
+# Heading 1
+## Heading 2
+### Heading 3
+
+## Emphasis
+*italic* or _italic_  
+**bold** or __bold__  
+***bold italic***  
+~~strikethrough~~
+
+## Links & Images
+[link text](https://documentero.com)  
+![alt text](https://documentero.com/custom/landing4.png)
+
+## Lists
+Unordered:
+- Item A
+- Item B
+- Item C
+
+Ordered:
+1. First
+2. Second
+
+Nested:
+- Parent
+  - Child
+
+## Tables
+| Name  | Age |
+|-------|-----|
+| Alice |  24 |
+| Bob   |  30 |
+
+> Nota: Este contenido es generado automáticamente.
             `.trim(),  
         },  
         "markdown-patch-images": {  
             type: PatchType.DOCUMENT,  
             markdownContent: `  
-# Imágenes de Markdown  
-    
-## Imagen directa:  
-![Landing Image](https://documentero.com/custom/landing4.png)  
-![](https://nci-media.cancer.gov/pdq/media/images/765321.jpg)  
-    
-Texto después de la imagen.  
-    
-## Imagen con texto alternativo:  
-![Documentero Landing](https://documentero.com/custom/landing4.png)  
-  
-## Imagen con referencia:  
-Esta es una imagen de documentero ![image reference][test-image].  
-  
-Esta es una segunda referencia a la imagen de documentero ![image reference][test-image].  
-  
-[test-image]: https://documentero.com/custom/landing4.png  
+## Contenido para exploracion
+
+Contenido generado basado en: "Exploración"
+
+Este es un **ejemplo de markdown** con:
+- Listas
+- Formato
+- Y más
+
+> Nota: Este contenido es generado automáticamente.
+
+# Markdown Cheatsheet
+
+## Headings
+# Heading 1
+## Heading 2
+### Heading 3
+
+## Emphasis
+*italic* or _italic_  
+**bold** or __bold__  
+***bold italic***  
+~~strikethrough~~
+
+## Links & Images
+[link text](https://documentero.com)  
+![alt text](https://documentero.com/custom/landing4.png)
+
+## Lists
+Unordered:
+- Item A
+- Item B
+- Item C
+
+Ordered:
+1. First
+2. Second
+
+Nested:
+- Parent
+  - Child
+
+## Tables
+| Name  | Age |
+|-------|-----|
+| Alice |  24 |
+| Bob   |  30 |
             `.trim(),  
             imageResolver: async (url: string) => {  
                 console.log(`Resolviendo imagen: ${url}`);  
@@ -197,7 +258,7 @@ Esta es una segunda referencia a la imagen de documentero ![image reference][tes
     console.log("Aplicando patches al documento...");  
     const result = await patchDocument({  
         outputType: "nodebuffer",  
-        data: fs.readFileSync("demo/assets/patch-md.docx"),  
+        data: fs.readFileSync("demo/assets/formato.docx"),  
         patches: processedPatches,  
     });  
   
@@ -205,7 +266,7 @@ Esta es una segunda referencia a la imagen de documentero ![image reference][tes
         fs.mkdirSync("output");  
     }  
   
-    fs.writeFileSync("output/output-markdown-emphasis-demo.docx", result);  
+    fs.writeFileSync("output/output-markdown-demo.docx", result);  
       
     console.log("=".repeat(60));  
     console.log("Demo de conversión Markdown a DOCX completada exitosamente!");  
